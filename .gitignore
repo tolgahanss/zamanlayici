@@ -1,0 +1,5 @@
+*.exe
+*.pdb
+*.obj
+png2ico.ps1
+app.ico
