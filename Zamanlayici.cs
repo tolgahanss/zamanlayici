@@ -4,6 +4,9 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Media;
+using System.Net.NetworkInformation;
+using System.Linq;
 
 namespace Zamanlayici
 {
@@ -142,6 +145,9 @@ namespace Zamanlayici
         private string actionMode = "shutdown";
         private string timerMode = "countdown";
         private float timerProgress = 0f;
+        private bool earlyWarningGiven = false;
+        private long lastBytesReceived = 0;
+        private int trackerConditionMetCount = 0;
 
         // --- Colors ---
         static readonly Color BgDark = Color.FromArgb(10, 12, 24);
@@ -172,12 +178,18 @@ namespace Zamanlayici
         private Label infoLabel;
         private Label idleStatusLabel;
         private RoundedButton btnModeShutdown, btnModeRestart;
-        private RoundedButton btnTimerCountdown, btnTimerIdle;
+        private RoundedButton btnTimerCountdown, btnTimerIdle, btnTimerTracker;
         private TextBox inputHours, inputMinutes, inputSeconds;
         private RoundedButton btnStart, btnCancel;
         private RoundedButton[] presetButtons;
         private RoundedButton selectedPreset = null;
         private System.Windows.Forms.Timer countdownTimer;
+        
+        private NotifyIcon trayIcon;
+        private BufferedPanel trackerPanel;
+        private RadioButton radioProcess, radioNetwork;
+        private TextBox inputProcessName, inputNetworkThreshold;
+        private Label presetLabel, customLabel;
 
         public MainForm()
         {
@@ -215,6 +227,7 @@ namespace Zamanlayici
             ForeColor = TextPrimary;
             DoubleBuffered = true;
             Font = new Font("Segoe UI", 9f);
+            this.Resize += MainForm_Resize;
         }
 
         // =============================================
@@ -273,8 +286,8 @@ namespace Zamanlayici
 
             btnTimerCountdown = new RoundedButton
             {
-                Location = new Point(6, 6), Size = new Size(208, 40),
-                Text = "Zamanlayici", Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(6, 6), Size = new Size(138, 40),
+                Text = "Zamanlayici", Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 BackColor = AccentBlue, ForeColor = Color.White,
                 UseGradient = true, GradientStart = AccentBlue, GradientEnd = AccentBlueDark,
                 Radius = 10
@@ -284,12 +297,21 @@ namespace Zamanlayici
 
             btnTimerIdle = new RoundedButton
             {
-                Location = new Point(220, 6), Size = new Size(208, 40),
-                Text = "Hareketsizlik", Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(148, 6), Size = new Size(138, 40),
+                Text = "Hareketsizlik", Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 BackColor = BgCard, ForeColor = TextSecondary, Radius = 10
             };
             btnTimerIdle.Click += delegate { SetTimerMode("idle"); };
             timerModePanel.Controls.Add(btnTimerIdle);
+
+            btnTimerTracker = new RoundedButton
+            {
+                Location = new Point(290, 6), Size = new Size(138, 40),
+                Text = "Akilli Izleyici", Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                BackColor = BgCard, ForeColor = TextSecondary, Radius = 10
+            };
+            btnTimerTracker.Click += delegate { SetTimerMode("tracker"); };
+            timerModePanel.Controls.Add(btnTimerTracker);
             y += 60;
 
             // --- ACTION MODE SELECTOR ---
@@ -329,7 +351,7 @@ namespace Zamanlayici
             mainPanel.Controls.Add(idleStatusLabel);
 
             // --- PRESETS ---
-            var presetLabel = new Label
+            presetLabel = new Label
             {
                 Location = new Point(22, y), Size = new Size(200, 20),
                 Text = "HIZLI AYAR", Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
@@ -359,7 +381,7 @@ namespace Zamanlayici
             y += 128;
 
             // --- CUSTOM TIME ---
-            var customLabel = new Label
+            customLabel = new Label
             {
                 Location = new Point(22, y), Size = new Size(200, 20),
                 Text = "OZEL SURE", Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
@@ -386,6 +408,39 @@ namespace Zamanlayici
 
             // --- ACTION BUTTONS ---
             y += 10;
+            
+            // --- TRACKER PANEL ---
+            trackerPanel = new BufferedPanel { Location = new Point(15, 395), Size = new Size(434, 250), BackColor = Color.Transparent, Visible = false };
+            mainPanel.Controls.Add(trackerPanel);
+
+            radioProcess = new RadioButton { Text = "Islem (Program) Izle", Location = new Point(10, 10), Size = new Size(200, 24), ForeColor = TextPrimary, Checked = true, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+            trackerPanel.Controls.Add(radioProcess);
+            trackerPanel.Controls.Add(new Label { Text = "Kapanmasini beklediginiz programin adini (exe haric) yazin.\nOrnek: steam, IDMan, chrome", Location = new Point(30, 40), Size = new Size(380, 36), ForeColor = TextMuted });
+            
+            inputProcessName = new TextBox { Location = new Point(30, 80), Size = new Size(300, 25), BackColor = BgInput, ForeColor = TextPrimary, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10f) };
+            trackerPanel.Controls.Add(inputProcessName);
+
+            radioNetwork = new RadioButton { Text = "Ag (Internet) Izle", Location = new Point(10, 120), Size = new Size(200, 24), ForeColor = TextPrimary, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+            trackerPanel.Controls.Add(radioNetwork);
+            trackerPanel.Controls.Add(new Label { Text = "Internet hizi belirlenen KB/s altina duserse kapatir.\nOrnek: 100 (Indirme bitince hiz duser)", Location = new Point(30, 150), Size = new Size(380, 36), ForeColor = TextMuted });
+            
+            inputNetworkThreshold = new TextBox { Location = new Point(30, 190), Size = new Size(100, 25), Text = "100", BackColor = BgInput, ForeColor = TextPrimary, BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 10f) };
+            trackerPanel.Controls.Add(inputNetworkThreshold);
+            trackerPanel.Controls.Add(new Label { Text = "KB/s", Location = new Point(140, 192), Size = new Size(50, 20), ForeColor = TextMuted });
+
+            // --- TRAY ICON SETUP ---
+            trayIcon = new NotifyIcon();
+            trayIcon.Text = "Zamanlayici";
+            try { trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { trayIcon.Icon = SystemIcons.Information; }
+            trayIcon.DoubleClick += (s, ev) => { this.Show(); this.WindowState = FormWindowState.Normal; trayIcon.Visible = false; };
+            
+            ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Items.Add("Goster", null, (s, ev) => { this.Show(); this.WindowState = FormWindowState.Normal; trayIcon.Visible = false; });
+            menu.Items.Add("Iptal Et", null, BtnCancel_Click);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Cikis", null, (s, ev) => { Application.Exit(); });
+            trayIcon.ContextMenuStrip = menu;
+
             btnStart = new RoundedButton
             {
                 Location = new Point(15, y), Size = new Size(434, 52),
@@ -422,6 +477,19 @@ namespace Zamanlayici
         // =============================================
         //  Paint Helpers
         // =============================================
+        private void MainForm_Resize(object sender, EventArgs e)
+        {
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.Hide();
+                trayIcon.Visible = true;
+                if (timerRunning && !earlyWarningGiven)
+                {
+                    trayIcon.ShowBalloonTip(3000, "Zamanlayici Arka Planda", "Program sag alt kosede calismaya devam ediyor.", ToolTipIcon.Info);
+                }
+            }
+        }
+
         private GraphicsPath RoundedRect(Rectangle r, int rad)
         {
             var path = new GraphicsPath();
@@ -590,6 +658,7 @@ namespace Zamanlayici
         private void CountdownTick(object sender, EventArgs e)
         {
             if (timerMode == "idle") { IdleTick(); return; }
+            if (timerMode == "tracker") { TrackerTick(); return; }
 
             if (remainingSeconds > 0)
             {
@@ -605,6 +674,13 @@ namespace Zamanlayici
                 timerSubLabel.Text = "Saat " + shutdownTime + " - " + verb;
 
                 if (remainingSeconds <= 60) timerDigitsLabel.ForeColor = AccentRed;
+
+                if (remainingSeconds == 60 && !earlyWarningGiven)
+                {
+                    earlyWarningGiven = true;
+                    SystemSounds.Exclamation.Play();
+                    if (trayIcon != null && trayIcon.Visible) trayIcon.ShowBalloonTip(5000, "Dikkat!", "Bilgisayar 1 dakika icinde kapanacak/yeniden baslayacak!", ToolTipIcon.Warning);
+                }
             }
             else
             {
@@ -636,7 +712,17 @@ namespace Zamanlayici
                 timerSubLabel.Text = string.Format("Bosta: {0} | {1} sn sonra {2}", FormatTime(idleSec), remaining, verb);
                 idleStatusLabel.Text = "Mouse/klavye hareketi sayaci sifirlar";
                 idleStatusLabel.ForeColor = AccentGreen;
-                if (remaining <= 60) timerDigitsLabel.ForeColor = AccentRed;
+                if (remaining <= 60) 
+                {
+                    timerDigitsLabel.ForeColor = AccentRed;
+                    if (remaining == 60 && !earlyWarningGiven)
+                    {
+                        earlyWarningGiven = true;
+                        SystemSounds.Exclamation.Play();
+                        if (trayIcon != null && trayIcon.Visible) trayIcon.ShowBalloonTip(5000, "Dikkat!", "Hareketsizlik suresi dolmak uzere!", ToolTipIcon.Warning);
+                    }
+                }
+                else earlyWarningGiven = false;
             }
             else
             {
@@ -664,6 +750,119 @@ namespace Zamanlayici
             }
         }
 
+        private void StartTrackerMode()
+        {
+            if (radioProcess.Checked && string.IsNullOrWhiteSpace(inputProcessName.Text))
+            {
+                MessageBox.Show("Lutfen bir program adi girin (ornek: chrome)", "Uyari", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            int dummyOut1;
+            if (radioNetwork.Checked && !int.TryParse(inputNetworkThreshold.Text, out dummyOut1))
+            {
+                MessageBox.Show("Lutfen gecerli bir KB/s siniri girin.", "Uyari", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string verb = actionMode == "shutdown" ? "kapanacak" : "yeniden baslayacak";
+            string msg = "Akilli Izleyici baslatilacak.\nKosul saglandiginda PC 30 saniye icinde " + verb + ". Devam?";
+            if (MessageBox.Show(msg, "Onay", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            timerRunning = true;
+            earlyWarningGiven = false;
+            trackerConditionMetCount = 0;
+            lastBytesReceived = GetNetworkBytesReceived();
+            
+            timerDigitsLabel.Text = "IZLENIYOR";
+            timerDigitsLabel.ForeColor = AccentBlueLight;
+            timerSubLabel.Text = radioProcess.Checked ? "Program kapanmasi bekleniyor" : "Ag kullanimi dusmesi bekleniyor";
+            statusLabel.Text = "\u25CF  Aktif";
+            statusLabel.ForeColor = AccentBlueLight;
+            
+            btnStart.Visible = false;
+            btnCancel.Visible = true;
+            idleStatusLabel.Text = "Arka planda calisiyor...";
+            idleStatusLabel.Visible = true;
+            
+            SetInputsEnabled(false);
+            countdownTimer.Start();
+        }
+
+        private long GetNetworkBytesReceived()
+        {
+            if (!NetworkInterface.GetIsNetworkAvailable()) return 0;
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .Sum(n => n.GetIPv4Statistics().BytesReceived);
+        }
+
+        private void TrackerTick()
+        {
+            bool conditionMet = false;
+
+            if (radioProcess.Checked)
+            {
+                string procName = inputProcessName.Text.Trim();
+                if (procName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) 
+                    procName = procName.Substring(0, procName.Length - 4);
+                
+                var procs = Process.GetProcessesByName(procName);
+                if (procs.Length == 0) conditionMet = true;
+            }
+            else if (radioNetwork.Checked)
+            {
+                long currentBytes = GetNetworkBytesReceived();
+                long diff = currentBytes - lastBytesReceived;
+                lastBytesReceived = currentBytes;
+                
+                int threshold;
+                if (int.TryParse(inputNetworkThreshold.Text, out threshold))
+                {
+                    long kbps = diff / 1024;
+                    if (kbps < threshold) conditionMet = true;
+                }
+            }
+
+            if (conditionMet)
+            {
+                trackerConditionMetCount++;
+                timerSubLabel.Text = string.Format("Kosul saglandi ({0}/10 saniye)", trackerConditionMetCount);
+                if (trackerConditionMetCount >= 10) 
+                {
+                    countdownTimer.Stop();
+                    ExecuteAction();
+                }
+            }
+            else
+            {
+                trackerConditionMetCount = 0;
+                timerSubLabel.Text = radioProcess.Checked ? "Program acik, izleniyor..." : "Ag kullanimi sinirin ustunde...";
+            }
+        }
+
+        private void ExecuteAction()
+        {
+            timerRunning = false;
+            timerDigitsLabel.Text = "00:00:00";
+            timerDigitsLabel.ForeColor = AccentRed;
+            timerSubLabel.Text = "Kosul gerceklesti, islem basladi!";
+            
+            string flag = actionMode == "shutdown" ? "/s" : "/r";
+            try
+            {
+                Process.Start(new ProcessStartInfo("cmd.exe", "/c shutdown " + flag + " /t 30") { WindowStyle = ProcessWindowStyle.Hidden, CreateNoWindow = true });
+                infoLabel.Text = "PC 30 saniye icinde kapanacak.";
+                infoLabel.Visible = true;
+                SystemSounds.Exclamation.Play();
+                if (trayIcon != null && trayIcon.Visible) trayIcon.ShowBalloonTip(5000, "Islem Basladi", "Akilli Izleyici kosulu saglandi. Kapanma baslatildi.", ToolTipIcon.Warning);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Komut calistirilamadi: " + ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            ResetUI();
+        }
+
         // =============================================
         //  Mode Switching
         // =============================================
@@ -685,10 +884,54 @@ namespace Zamanlayici
             btnTimerIdle.GradientStart = AccentOrange;
             btnTimerIdle.GradientEnd = AccentOrangeDark;
             btnTimerIdle.Invalidate();
+            
+            if (btnTimerTracker != null)
+            {
+                btnTimerTracker.BackColor = timerMode == "tracker" ? AccentBlue : BgCard;
+                btnTimerTracker.ForeColor = timerMode == "tracker" ? Color.White : TextSecondary;
+                btnTimerTracker.UseGradient = timerMode == "tracker";
+                btnTimerTracker.GradientStart = AccentBlue;
+                btnTimerTracker.GradientEnd = AccentBlueDark;
+                btnTimerTracker.Invalidate();
+            }
 
-            idleStatusLabel.Visible = (timerMode == "idle");
+            idleStatusLabel.Visible = (timerMode == "idle" || timerMode == "tracker");
+            
+            bool showTimeInputs = (timerMode == "countdown" || timerMode == "idle");
+            if (presetLabel != null) presetLabel.Visible = showTimeInputs;
+            if (customLabel != null) customLabel.Visible = showTimeInputs;
+            if (inputHours != null) {
+                inputHours.Visible = showTimeInputs;
+                inputMinutes.Visible = showTimeInputs;
+                inputSeconds.Visible = showTimeInputs;
+                foreach (Control c in Controls) {
+                   BufferedPanel bp = c as BufferedPanel;
+                   if (bp != null) {
+                      foreach(Control bpc in bp.Controls) {
+                        Label lbl = bpc as Label;
+                        if (lbl != null && (lbl.Text == ":" || lbl.Text == "SAAT" || lbl.Text == "DAKIKA" || lbl.Text == "SANIYE")) lbl.Visible = showTimeInputs;
+                      }
+                   }
+                }
+            }
+            if (presetButtons != null) {
+                foreach (var b in presetButtons) b.Visible = showTimeInputs;
+            }
+            if (trackerPanel != null) trackerPanel.Visible = (timerMode == "tracker");
 
-            if (timerMode == "idle")
+            if (timerMode == "tracker")
+            {
+                timerSubLabel.Text = "Izlenecek kosulu secin";
+                idleStatusLabel.Text = "Islem veya Ag hareketi izlenecek";
+                idleStatusLabel.ForeColor = AccentBlueLight;
+                btnStart.Text = "\u25B6   AKILLI IZLEMEYI BASLAT";
+                btnStart.BackColor = AccentBlue;
+                btnStart.UseGradient = true;
+                btnStart.GradientStart = AccentBlue;
+                btnStart.GradientEnd = AccentBlueDark;
+                btnStart.Invalidate();
+            }
+            else if (timerMode == "idle")
             {
                 timerSubLabel.Text = "Hareketsizlik suresi belirleyin";
                 idleStatusLabel.Text = "Mouse/klavye hareketi izlenecek";
@@ -783,7 +1026,9 @@ namespace Zamanlayici
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            if (timerMode == "idle") StartIdleMode(sec); else StartCountdownMode(sec);
+            if (timerMode == "tracker") StartTrackerMode();
+            else if (timerMode == "idle") StartIdleMode(sec); 
+            else StartCountdownMode(sec);
         }
 
         private void StartIdleMode(int sec)
@@ -862,6 +1107,7 @@ namespace Zamanlayici
             timerRunning = false;
             remainingSeconds = 0;
             timerProgress = 0f;
+            earlyWarningGiven = false;
             timerDigitsLabel.Text = "00:00:00";
             timerDigitsLabel.ForeColor = TextPrimary;
             timerSubLabel.Text = "Iptal edildi";
@@ -928,6 +1174,16 @@ namespace Zamanlayici
                 btnStart.GradientStart = AccentOrange;
                 btnStart.GradientEnd = AccentOrangeDark;
             }
+            else if (timerMode == "tracker")
+            {
+                idleStatusLabel.Text = "Islem veya Ag hareketi izlenecek";
+                idleStatusLabel.ForeColor = AccentBlueLight;
+                btnStart.Text = "\u25B6   AKILLI IZLEMEYI BASLAT";
+                btnStart.BackColor = AccentBlue;
+                btnStart.UseGradient = true;
+                btnStart.GradientStart = AccentBlue;
+                btnStart.GradientEnd = AccentBlueDark;
+            }
             else
             {
                 btnStart.Text = "\u25B6   BASLAT";
@@ -949,11 +1205,17 @@ namespace Zamanlayici
             btnModeRestart.Enabled = enabled;
             btnTimerCountdown.Enabled = enabled;
             btnTimerIdle.Enabled = enabled;
+            if (btnTimerTracker != null) btnTimerTracker.Enabled = enabled;
+            if (inputProcessName != null) inputProcessName.Enabled = enabled;
+            if (inputNetworkThreshold != null) inputNetworkThreshold.Enabled = enabled;
+            if (radioProcess != null) radioProcess.Enabled = enabled;
+            if (radioNetwork != null) radioNetwork.Enabled = enabled;
             foreach (var b in presetButtons) { b.Enabled = enabled; b.Invalidate(); }
             btnModeShutdown.Invalidate();
             btnModeRestart.Invalidate();
             btnTimerCountdown.Invalidate();
             btnTimerIdle.Invalidate();
+            if (btnTimerTracker != null) btnTimerTracker.Invalidate();
         }
     }
 }
