@@ -1,6 +1,6 @@
 # Zamanlayici - PC Kapatma & Yeniden Baslatma
 
-Windows icin gelistirilmis, modern arayuzlu PC kapatma zamanlayici uygulamasi.
+Windows icin gelistirilmis, modern arayuzlu PC kapatma, yeniden baslatma ve akilli izleme zamanlayici uygulamasi.
 
 ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
@@ -18,10 +18,16 @@ Belirlediginiz sure sonunda bilgisayari otomatik olarak kapatir veya yeniden bas
 - Windows `shutdown` komutunu kullanir
 
 ### Hareketsizlik Modu
-Mouse ve klavye hareketlerini izler. Belirlediginiz sure boyunca hic hareket olmazsa bilgisayari kapatir.
+Mouse ve klavye hareketlerini izler. Belirlediginiz sure boyunca hic hareket olmazsa bilgisayari kapatir veya yeniden baslatir.
 - Windows API `GetLastInputInfo` ile sistem bosta kalma suresi izlenir
 - Herhangi bir mouse/klavye hareketi sayaci otomatik sifirlar
 - Canli bosta kalma suresi gosterimi
+
+### Akilli Izleyici Modu
+Arka planda belirli bir programi veya ag (internet) kullanimini izler. Kosul saglandiginda PC otomatik olarak kapanir.
+- **Islem (Program) Izle**: Kapanmasini beklediginiz programin adini (ornek: `steam`, `IDMan`, `chrome`) girin. O program kapatildiginda bilgisayar kapanir.
+- **Ag (Internet) Izle**: Internet hizi (indirme) belirlenen KB/s altina duserse (ornek: `100` KB/s) bilgisayar kapanir. Ozellikle uzun suren indirmeler bittiginde PC'yi kapatmak icin idealdir.
+- `NetworkInterface` uzerinden ag verileri hesaplanir.
 
 ### Genel
 - **Kapat** veya **Yeniden Baslat** secimi
@@ -29,6 +35,7 @@ Mouse ve klavye hareketlerini izler. Belirlediginiz sure boyunca hic hareket olm
 - **Owner-drawn yuvarlatilmis butonlar** ve gradient efektler
 - **Animasyonlu ilerleme halkasi** (parlayan nokta efekti)
 - **Iptal** butonu ile geri sayim veya izlemeyi durdurma
+- **Sistem Tepsisine Kucultme**: Arka planda calisirken rahatsiz etmez (sag alt koseye kuculur)
 - **Cikis korumasi** - uygulama kapatilirken aktif zamanlayici uyarisi
 - Ek yazilim gerektirmez, tek `.exe` dosyasi
 
@@ -56,16 +63,17 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /win32ico
 2. **"Bilgisayari Kapat"** veya **"Yeniden Baslat"** secin
 3. Hizli ayar butonlarindan birini secin veya ozel sure girin
 4. **"BASLAT"** butonuna tiklayin
-5. Onay verdikten sonra geri sayim baslar
-6. Iptal etmek icin **"IPTAL ET"** butonuna tiklayin
 
 ### Hareketsizlik Modu
 1. **"Hareketsizlik"** sekmesine tiklayin
 2. Bosta kalma esik suresini belirleyin (orn: 30 dakika)
-3. **"IZLEMEYI BASLAT"** butonuna tiklayin
-4. Uygulama mouse/klavye hareketlerini izlemeye baslar
-5. Eger belirlenen sure boyunca hic hareket olmazsa PC kapanir
-6. Herhangi bir hareket sayaci otomatik sifirlar
+3. **"BASLAT"** butonuna tiklayin
+4. Uygulama mouse/klavye hareketlerini izlemeye baslar ve hareket olmadiginda sure isler.
+
+### Akilli Izleyici
+1. **"Akilli Izleyici"** sekmesine tiklayin
+2. **Islem Izle** veya **Ag Izle** secenegini belirleyin
+3. Ilgili program adini veya hiz sinirini (KB/s) girip **"BASLAT"** butonuna tiklayin.
 
 ---
 
@@ -74,6 +82,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /win32ico
 - **Dil:** C# (.NET Framework 4.0+)
 - **UI Framework:** Windows Forms (WinForms)
 - **Idle Detection:** `user32.dll` - `GetLastInputInfo` API
+- **Ag Izleme:** `System.Net.NetworkInformation.NetworkInterface` sinifi ile canli veri akisi olcumu
 - **Shutdown:** Windows `shutdown.exe` komutu
 - **Uyumluluk:** Windows 7, 8, 10, 11
 
