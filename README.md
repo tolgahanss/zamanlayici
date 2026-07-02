@@ -77,6 +77,30 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /win32ico
 
 ---
 
+## Kod Yapisi ve Calisma Mantigi (Zamanlayici.cs)
+
+Uygulama tek bir C# dosyasi (`Zamanlayici.cs`) icerisinde moduler siniflara ayrilarak gelistirilmistir. Kodun temel isleyisi asagidaki bilesenlerle saglanir:
+
+### 1. Kullanici Arayuzu (UI) Bilesenleri
+- **`BufferedPanel` Sinifi:** Standart `Panel` kontrolunu genisleterek **Double-Buffering** (Cift arabellege alma) ozelligini aktif eder. Bu sayede animasyonlu ilerleme halkasi saniyede bir cizilirken ekranda titreme (flicker) olusmasi engellenir.
+- **`RoundedButton` Sinifi:** Standart Windows butonlarini modern bir gorunume kavusturmak icin tasarlanmistir. Yuvarlatilmis koseler (`Radius`), gradient renk gecisleri, hover (uzerine gelme) efektleri ve saydamlik ayarlari `OnPaint` metodu ezilerek (override) GDI+ ile ozel olarak cizdirilir (Owner-drawn).
+
+### 2. Form ve Kontrol Sinifi (`MainForm`)
+- Uygulamanin kalbidir. Arayuz elemanlarinin (butonlar, gostergeler) dinamik olarak olusturulmasi (kod uzerinden UI insasi), renk paletinin tanimlanmasi (Orn: `BgDark`, `AccentBlue`) ve click gibi olaylarin (event) dinlenmesi burada yapilir.
+- **Gorsel Cizimler:** `PaintTimerRing` metodu, geri sayim devam ederken gecen sureye orantili olarak (`timerProgress`) parlak bir ilerleme halkasi ve uc noktasi (Glow effect) cizer.
+
+### 3. Zamanlayici ve Izleme Mekanizmalari
+- **Standart Geri Sayim:** `System.Windows.Forms.Timer` kullanilarak saniyede bir tetiklenen (`CountdownTick`) bir dongu ile sure azaltilir.
+- **Hareketsizlik Izleme (Idle Detection):** `[DllImport("user32.dll")]` kullanilarak Windows API'sinin `GetLastInputInfo` fonksiyonu disaridan (extern) cagirilir. Bu fonksiyon, isletim sistemi seviyesinde en son ne zaman klavye veya fare girisi yapildigini milisaniye cinsinden dondurur. Bu deger surekli kontrol edilerek hedeflenen bosta kalma suresine ulasilip ulasilmadigi hesaplanir.
+- **Akilli Izleyici (Ag ve Surec):**
+  - *Islem Izleme:* `Process.GetProcessesByName()` ile sistemdeki aktif islemler taranir. Hedef program listede bulunamazsa kapanma islemi gerceklesir.
+  - *Ag Izleme:* `System.Net.NetworkInformation.NetworkInterface` sinifi kullanilarak tum aktif ag bagdastiricilarinin `BytesReceived` (alinan byte) istatistikleri toplanir. Saniyede alinan veri miktari hesaplanip KB/s cinsine cevrilerek, kullanicinin belirledigi hiz sinirinin altina dusup dusmedigi denetlenir.
+
+### 4. Isletim Sistemi Komutlari
+- Hedeflenen sure veya kosul saglandiginda, `Process.Start` ile Windows'un yerlesik araci uzerinden `shutdown /s /t 30` (Kapat) veya `shutdown /r /t 30` (Yeniden Baslat) komutlari arka planda calistirilir. Kullaniciya islem icin 30 saniyelik ek bir uyari payi birakilir.
+
+---
+
 ## Teknik Detaylar
 
 - **Dil:** C# (.NET Framework 4.0+)
